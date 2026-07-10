@@ -7,15 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g. v1.0.0). Leave empty to build without publishing.'
-        required: false
-        default: ''
+        description: 'Tag to publish (e.g. v1.0.1). Builds from this branch/ref and attaches installers to that release tag.'
+        required: true
+        default: 'v1.0.1'
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.ref }}-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -55,12 +55,9 @@ jobs:
       - name: Package (macOS)
         if: matrix.platform == 'mac'
         env:
-          # Optional Apple signing — leave unset for unsigned builds
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Empty CSC_LINK breaks electron-builder ("not a file"). Skip signing in CI
+          # unless real Apple cert secrets are configured later.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder --mac --publish never
 
       - name: Package (Windows)
@@ -76,23 +73,22 @@ jobs:
         with:
           name: portkiller-${{ matrix.platform }}
           path: |
-            release/*
-            !release/**/*.yaml
-            !release/builder-debug.yml
-            !release/builder-effective-config.yaml
-            !release/**/mac
-            !release/**/mac-arm64
-            !release/**/mac-universal
-            !release/**/linux-unpacked
-            !release/**/win-unpacked
-          if-no-files-found: warn
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.yml
+            release/*.blockmap
+          if-no-files-found: error
           retention-days: 14
 
   publish:
     name: GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    # Publish even if one platform failed, as long as at least one artifact exists
+    if: always() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -101,6 +97,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist-artifacts
+          merge-multiple: true
 
       - name: Collect release files
         id: files
@@ -110,8 +107,14 @@ jobs:
           find dist-artifacts -type f \
             \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.yml' -o -name '*.blockmap' \) \
             -exec cp -v {} upload/ \;
-          echo "count=$(find upload -type f | wc -l)" >> "$GITHUB_OUTPUT"
-          ls -lah upload
+          count="$(find upload -type f | wc -l | tr -d ' ')"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Found $count release files:"
+          ls -lah upload || true
+          if [[ "$count" == "0" ]]; then
+            echo "No installer artifacts were produced."
+            exit 1
+          fi
 
       - name: Resolve tag
         id: tag
@@ -123,8 +126,7 @@ jobs:
             echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create GitHub Release
-        if: steps.files.outputs.count != '0'
+      - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}

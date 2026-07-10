@@ -3,7 +3,10 @@
   "version": "1.0.1",
   "description": "Cross-platform desktop app to detect common ports and free them by killing occupying processes",
   "main": "dist-electron/electron/main.js",
-  "author": "Hassan Rasool",
+  "author": {
+    "name": "Hassan Rasool",
+    "email": "hassanrasool1057@gmail.com"
+  },
   "license": "MIT",
   "homepage": "https://github.com/HassanRasoo98/portkiller",
   "repository": {
@@ -70,7 +73,8 @@
             "arm64"
           ]
         }
-      ]
+      ],
+      "identity": null
     },
     "dmg": {
       "contents": [
@@ -124,7 +128,9 @@
       ],
       "category": "Development",
       "synopsis": "Find and free occupied local ports",
-      "description": "Scan common local development ports and kill occupying processes from an interactive UI."
+      "description": "Scan common local development ports and kill occupying processes from an interactive UI.",
+      "maintainer": "Hassan Rasool <hassanrasool1057@gmail.com>",
+      "desktopName": "portkiller"
     }
   },
   "dependencies": {
