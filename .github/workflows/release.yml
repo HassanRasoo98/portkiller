@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.0.0). Leave empty to build without publishing.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: mac
+            host: macos-latest
+          - platform: windows
+            host: windows-latest
+          - platform: linux
+            host: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build app
+        run: npm run build
+
+      - name: Package (macOS)
+        if: matrix.platform == 'mac'
+        env:
+          # Optional Apple signing — leave unset for unsigned builds
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --mac --publish never
+
+      - name: Package (Windows)
+        if: matrix.platform == 'windows'
+        run: npx electron-builder --win --publish never
+
+      - name: Package (Linux)
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --linux --publish never
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: portkiller-${{ matrix.platform }}
+          path: |
+            release/*
+            !release/**/*.yaml
+            !release/builder-debug.yml
+            !release/builder-effective-config.yaml
+            !release/**/mac
+            !release/**/mac-arm64
+            !release/**/mac-universal
+            !release/**/linux-unpacked
+            !release/**/win-unpacked
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Collect release files
+        id: files
+        shell: bash
+        run: |
+          mkdir -p upload
+          find dist-artifacts -type f \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.yml' -o -name '*.blockmap' \) \
+            -exec cp -v {} upload/ \;
+          echo "count=$(find upload -type f | wc -l)" >> "$GITHUB_OUTPUT"
+          ls -lah upload
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.files.outputs.count != '0'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: PortKiller ${{ steps.tag.outputs.name }}
+          draft: false
+          generate_release_notes: true
+          files: upload/*
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
