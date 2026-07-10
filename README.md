@@ -70,6 +70,14 @@ shared/            Shared port definitions and types
 src/               React UI
 ```
 
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| Kill fails with permission errors | Quit the owning app, or relaunch PortKiller with elevated privileges |
+| Port still shows in use after kill | Hit **Rescan** — some servers respawn (e.g. process managers) |
+| macOS “Could not kill: \<port\> (ESRCH)” on older builds | Update to the latest PortKiller — PID detection no longer confuses the port number with a process ID |
+
 ## Security notes
 
 - Renderer runs with `contextIsolation` and no Node integration
