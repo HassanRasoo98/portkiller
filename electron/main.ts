@@ -41,7 +41,6 @@ function createWindow(): void {
 
   if (isDev && process.env.VITE_DEV_SERVER_URL) {
     void win.loadURL(process.env.VITE_DEV_SERVER_URL);
-    win.webContents.openDevTools({ mode: 'detach' });
   } else {
     void win.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
