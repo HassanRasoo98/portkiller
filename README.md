@@ -45,15 +45,76 @@ npm run dev
 | `npm run electron:dev` | Vite + Electron with live reload |
 | `npm run dev` | Vite UI only (demo API) |
 | `npm run build` | Typecheck/compile renderer + Electron main |
-| `npm run electron:build` | Package installers with electron-builder |
+| `npm run electron:build` | Package for the current OS |
+| `npm run electron:build:mac` | macOS `.dmg` + `.zip` (x64 + arm64) |
+| `npm run electron:build:win` | Windows NSIS installer + portable `.exe` |
+| `npm run electron:build:linux` | Linux AppImage + `.deb` |
+| `npm run release:tag` | Create a `v*` git tag (optionally bump version) |
 | `npm test` | Unit tests |
 | `npm run typecheck` | TypeScript checks |
+
+## GitHub Releases (all platforms)
+
+CI builds installers on **macOS, Windows, and Linux** and attaches them to a GitHub Release when you push a version tag.
+
+### 1. Ship a release (recommended)
+
+```bash
+# optionally bump version + commit, then create annotated tag
+npm run release:tag patch    # or: minor | major | 1.2.3
+
+# push commit + tag — triggers .github/workflows/release.yml
+git push origin HEAD && git push origin v1.0.1
+```
+
+Or tag manually:
+
+```bash
+git tag -a v1.0.0 -m "PortKiller v1.0.0"
+git push origin v1.0.0
+```
+
+### 2. What gets published
+
+| Platform | Artifacts |
+| --- | --- |
+| macOS | `PortKiller-*-mac-x64.dmg`, `PortKiller-*-mac-arm64.dmg` (+ zip) |
+| Windows | NSIS installer `.exe`, portable `.exe` |
+| Linux | `.AppImage`, `.deb` |
+
+Find them on the [Releases](https://github.com/HassanRasoo98/portkiller/releases) page after the workflow finishes.
+
+### 3. Local packaging (single OS only)
+
+```bash
+npm run electron:build:mac     # on a Mac
+npm run electron:build:win     # on Windows (or use CI)
+npm run electron:build:linux   # on Linux
+```
+
+Outputs land in `release/`. You cannot reliably cross-compile all three platforms from one machine — use the GitHub Actions workflow for full coverage.
+
+### 4. macOS Gatekeeper / signing (optional)
+
+Unsigned Mac builds work, but users may need **Right-click → Open** the first time.
+
+To notarize signed builds, add these repository secrets:
+
+| Secret | Purpose |
+| --- | --- |
+| `CSC_LINK` | Base64 of your Developer ID `.p12` certificate |
+| `CSC_KEY_PASSWORD` | Certificate password |
+| `APPLE_ID` | Apple ID for notarization |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password |
+| `APPLE_TEAM_ID` | Apple Team ID |
+
+Without those secrets, CI still publishes unsigned macOS artifacts.
 
 ## How it works
 
 | Platform | Detect listeners | Kill process |
 | --- | --- | --- |
-| macOS / Linux | `lsof` (fallback: `ss`, `fuser`) | `SIGKILL` / `SIGTERM` |
+| macOS / Linux | `lsof` (fallback: `ss`, `fuser`) | `kill -9` / `SIGTERM` |
 | Windows | `netstat` + `tasklist` | `taskkill /F` |
 
 Protected system processes may require elevated privileges. If a kill fails, the UI shows the error and suggests running as administrator / with sudo where appropriate.
