@@ -119,8 +119,8 @@ function registerIpc(): void {
 
       const { killed, failed } = await killPort(port, force);
 
-      // Brief pause then verify
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      // Brief pause then verify — give the OS time to release the socket
+      await new Promise((resolve) => setTimeout(resolve, 250));
       const after = await findListenersOnPort(port);
       const success = after.length === 0;
 
@@ -128,12 +128,23 @@ function registerIpc(): void {
       if (success) {
         message =
           killed.length > 0
-            ? `Freed port ${port} (killed ${killed.join(', ')})`
+            ? `Freed port ${port} (killed PID ${killed.join(', ')})`
             : `Port ${port} is free`;
       } else if (failed.length > 0) {
-        message = `Could not kill: ${failed
-          .map((f) => `${f.pid} (${f.error})`)
-          .join('; ')}. Try running as administrator.`;
+        const needsElevation = failed.some((f) =>
+          /permission|denied|eperm|administrator|elevated/i.test(f.error),
+        );
+        const details = failed
+          .map((f) => (f.pid > 0 ? `PID ${f.pid}: ${f.error}` : f.error))
+          .join('; ');
+        message = needsElevation
+          ? `${details}. Try quitting the app that owns the port, or run PortKiller with elevated privileges.`
+          : `${details}. Port ${port} is still in use.`;
+      } else if (after.length > 0) {
+        const still = after
+          .map((p) => `${p.name} (PID ${p.pid})`)
+          .join(', ');
+        message = `Port ${port} still occupied by ${still}`;
       } else {
         message = `Port ${port} still occupied after kill attempt`;
       }

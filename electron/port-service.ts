@@ -4,7 +4,7 @@ import type { PortProcess } from '../shared/common-ports';
 
 const execFileAsync = promisify(execFile);
 
-function uniqueByPid(processes: PortProcess[]): PortProcess[] {
+export function uniqueByPid(processes: PortProcess[]): PortProcess[] {
   const seen = new Set<number>();
   return processes.filter((proc) => {
     if (seen.has(proc.pid)) return false;
@@ -39,13 +39,44 @@ async function run(
   }
 }
 
-function parseLsof(stdout: string): PortProcess[] {
+/** Parse `lsof -F pc` machine-readable output into processes. */
+export function parseLsofFields(stdout: string): PortProcess[] {
+  const processes: PortProcess[] = [];
+  let pid: number | null = null;
+  let name = 'unknown';
+
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.trimEnd();
+    if (!line) continue;
+    const code = line[0];
+    const value = line.slice(1);
+
+    if (code === 'p') {
+      if (pid !== null) {
+        processes.push({ pid, name });
+      }
+      const nextPid = Number(value);
+      pid = Number.isFinite(nextPid) && nextPid > 0 ? nextPid : null;
+      name = 'unknown';
+    } else if (code === 'c' && pid !== null) {
+      name = value || name;
+    }
+  }
+
+  if (pid !== null) {
+    processes.push({ pid, name });
+  }
+
+  return uniqueByPid(processes);
+}
+
+/** Parse classic tabular `lsof` output. */
+export function parseLsofTable(stdout: string): PortProcess[] {
   const lines = stdout
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
 
-  // Skip header if present
   const dataLines = lines[0]?.startsWith('COMMAND') ? lines.slice(1) : lines;
   const processes: PortProcess[] = [];
 
@@ -55,11 +86,10 @@ function parseLsof(stdout: string): PortProcess[] {
     const name = parts[0];
     const pid = Number(parts[1]);
     if (!Number.isFinite(pid) || pid <= 0) continue;
-    const user = parts[2];
     processes.push({
       pid,
       name,
-      user,
+      user: parts[2],
       command: line,
     });
   }
@@ -67,54 +97,154 @@ function parseLsof(stdout: string): PortProcess[] {
   return uniqueByPid(processes);
 }
 
+/** Parse `lsof -t` PID-only output, ignoring the listened port number. */
+export function parseLsofPids(stdout: string, port: number): number[] {
+  return [
+    ...new Set(
+      stdout
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .map((token) => Number(token))
+        .filter(
+          (pid) =>
+            Number.isFinite(pid) &&
+            Number.isInteger(pid) &&
+            pid > 0 &&
+            pid !== port,
+        ),
+    ),
+  ];
+}
+
+/** Parse `ss -tlnp` output for a port. */
+export function parseSs(stdout: string): PortProcess[] {
+  const processes: PortProcess[] = [];
+  const pidRegex = /pid=(\d+)/g;
+  const nameRegex = /users:\(\("([^"]+)"/g;
+  const pids: number[] = [];
+  const names: string[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = pidRegex.exec(stdout)) !== null) {
+    pids.push(Number(match[1]));
+  }
+  while ((match = nameRegex.exec(stdout)) !== null) {
+    names.push(match[1]);
+  }
+
+  for (let i = 0; i < pids.length; i += 1) {
+    processes.push({
+      pid: pids[i],
+      name: names[i] ?? `pid-${pids[i]}`,
+    });
+  }
+
+  return uniqueByPid(processes);
+}
+
+/**
+ * Parse fuser output carefully so the port number in `3000/tcp:` is never
+ * treated as a PID (this was the macOS ESRCH bug).
+ */
+export function parseFuser(stdout: string, stderr: string, port: number): number[] {
+  const combined = `${stdout} ${stderr}`.trim();
+  if (!combined) return [];
+
+  // Common forms:
+  //   "3000/tcp:           12345"
+  //   "12345"
+  //   "3000/tcp: 12345 12346"
+  const afterColon = combined.includes(':')
+    ? combined.slice(combined.indexOf(':') + 1)
+    : combined;
+
+  return [
+    ...new Set(
+      [...afterColon.matchAll(/\b(\d+)\b/g)]
+        .map((match) => Number(match[1]))
+        .filter(
+          (pid) =>
+            Number.isFinite(pid) &&
+            Number.isInteger(pid) &&
+            pid > 0 &&
+            pid !== port,
+        ),
+    ),
+  ];
+}
+
+async function processNameForPid(pid: number): Promise<string> {
+  const ps = await run('ps', ['-p', String(pid), '-o', 'comm=']);
+  if (ps.code === 0 && ps.stdout.trim()) {
+    return ps.stdout.trim().split('/').pop() || `pid-${pid}`;
+  }
+  return `pid-${pid}`;
+}
+
+async function enrichPids(
+  pids: number[],
+  port: number,
+): Promise<PortProcess[]> {
+  const filtered = pids.filter((pid) => pid > 0 && pid !== port);
+  const processes = await Promise.all(
+    filtered.map(async (pid) => ({
+      pid,
+      name: await processNameForPid(pid),
+    })),
+  );
+  return uniqueByPid(processes);
+}
+
 async function findListenersUnix(port: number): Promise<PortProcess[]> {
-  // Prefer lsof when available (macOS + many Linux distros)
-  const lsof = await run('lsof', [
+  // 1) Best: machine-readable lsof fields (reliable on macOS + Linux)
+  // Accept non-zero exit codes — lsof often exits 1 even with useful stdout.
+  const lsofFields = await run('lsof', [
     '-nP',
+    '-Fpc',
     `-iTCP:${port}`,
     '-sTCP:LISTEN',
   ]);
-  if (lsof.code === 0 && lsof.stdout.trim()) {
-    return parseLsof(lsof.stdout);
+  if (lsofFields.stdout.trim()) {
+    const parsed = parseLsofFields(lsofFields.stdout).filter(
+      (proc) => proc.pid !== port,
+    );
+    if (parsed.length > 0) return parsed;
   }
 
-  // Fallback: ss (Linux)
+  // 2) PID-only lsof (-t). Very common on macOS tooling.
+  const lsofPids = await run('lsof', [
+    '-nP',
+    '-tiTCP:' + String(port),
+    '-sTCP:LISTEN',
+  ]);
+  if (lsofPids.stdout.trim()) {
+    const pids = parseLsofPids(lsofPids.stdout, port);
+    if (pids.length > 0) return enrichPids(pids, port);
+  }
+
+  // 3) Broader tabular lsof without LISTEN filter (still TCP for this port)
+  const lsofLoose = await run('lsof', ['-nP', `-iTCP:${port}`]);
+  if (lsofLoose.stdout.trim()) {
+    const fromTable = parseLsofTable(lsofLoose.stdout).filter(
+      (proc) => proc.pid !== port,
+    );
+    if (fromTable.length > 0) return fromTable;
+  }
+
+  // 4) Linux ss
   const ss = await run('ss', ['-tlnp', `sport = :${port}`]);
-  if (ss.code === 0 && ss.stdout.trim()) {
-    const processes: PortProcess[] = [];
-    const pidRegex = /pid=(\d+)/g;
-    const nameRegex = /users:\(\("([^"]+)"/g;
-    let match: RegExpExecArray | null;
-    const pids: number[] = [];
-    while ((match = pidRegex.exec(ss.stdout)) !== null) {
-      pids.push(Number(match[1]));
-    }
-    const names: string[] = [];
-    while ((match = nameRegex.exec(ss.stdout)) !== null) {
-      names.push(match[1]);
-    }
-    for (let i = 0; i < pids.length; i += 1) {
-      processes.push({
-        pid: pids[i],
-        name: names[i] ?? `pid-${pids[i]}`,
-      });
-    }
-    return uniqueByPid(processes);
+  if (ss.stdout.trim()) {
+    const parsed = parseSs(ss.stdout).filter((proc) => proc.pid !== port);
+    if (parsed.length > 0) return parsed;
   }
 
-  // Last resort: fuser
+  // 5) fuser — never treat the port number as a PID
   const fuser = await run('fuser', [`${port}/tcp`]);
-  const combined = `${fuser.stdout} ${fuser.stderr}`;
-  const pids = [...combined.matchAll(/\b(\d+)\b/g)]
-    .map((m) => Number(m[1]))
-    .filter((pid) => Number.isFinite(pid) && pid > 0);
+  const fuserPids = parseFuser(fuser.stdout, fuser.stderr, port);
+  if (fuserPids.length > 0) return enrichPids(fuserPids, port);
 
-  return uniqueByPid(
-    pids.map((pid) => ({
-      pid,
-      name: `pid-${pid}`,
-    })),
-  );
+  return [];
 }
 
 async function findListenersWindows(port: number): Promise<PortProcess[]> {
@@ -141,7 +271,7 @@ async function findListenersWindows(port: number): Promise<PortProcess[]> {
     if (!portMatch || Number(portMatch[1]) !== port) continue;
 
     const pid = Number(pidStr);
-    if (!Number.isFinite(pid) || pid <= 0) continue;
+    if (!Number.isFinite(pid) || pid <= 0 || pid === port) continue;
 
     processes.push({ pid, name: `pid-${pid}` });
   }
@@ -158,7 +288,6 @@ async function findListenersWindows(port: number): Promise<PortProcess[]> {
       '/NH',
     ]);
     if (task.code === 0 && task.stdout.trim()) {
-      // "chrome.exe","1234","Session","1","12,345 K"
       const csv = task.stdout.trim().split('\n')[0];
       const nameMatch = csv.match(/^"([^"]+)"/);
       enriched.push({
@@ -186,6 +315,26 @@ export async function findListenersOnPort(port: number): Promise<PortProcess[]> 
   return findListenersUnix(port);
 }
 
+function isNoSuchProcessError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const err = error as { code?: string; message?: string };
+  return (
+    err.code === 'ESRCH' ||
+    Boolean(err.message && /ESRCH|no such process/i.test(err.message))
+  );
+}
+
+function isPermissionError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const err = error as { code?: string; message?: string };
+  return (
+    err.code === 'EPERM' ||
+    Boolean(
+      err.message && /EPERM|operation not permitted|access is denied/i.test(err.message),
+    )
+  );
+}
+
 export async function killProcesses(
   pids: number[],
   force = true,
@@ -204,21 +353,44 @@ export async function killProcesses(
         if (result.code === 0) {
           killed.push(pid);
         } else {
-          failed.push({
-            pid,
-            error: result.stderr || result.stdout || 'taskkill failed',
-          });
+          const detail = result.stderr || result.stdout || 'taskkill failed';
+          // Already exited
+          if (/not found|no running instance/i.test(detail)) {
+            killed.push(pid);
+          } else {
+            failed.push({ pid, error: detail.trim() });
+          }
         }
       } else {
-        const signal = force ? 'SIGKILL' : 'SIGTERM';
-        process.kill(pid, signal);
-        killed.push(pid);
+        // Prefer kill(1) on Unix — clearer errors and matches user expectations on macOS.
+        const args = force ? ['-9', String(pid)] : ['-TERM', String(pid)];
+        const result = await run('kill', args);
+        if (result.code === 0) {
+          killed.push(pid);
+        } else {
+          const detail = `${result.stderr} ${result.stdout}`.trim() || 'kill failed';
+          if (/no such process/i.test(detail)) {
+            // Process already gone — treat as success for this PID
+            killed.push(pid);
+          } else {
+            failed.push({ pid, error: detail });
+          }
+        }
       }
     } catch (error) {
-      failed.push({
-        pid,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      if (isNoSuchProcessError(error)) {
+        killed.push(pid);
+      } else if (isPermissionError(error)) {
+        failed.push({
+          pid,
+          error: 'Permission denied — try running PortKiller with elevated privileges',
+        });
+      } else {
+        failed.push({
+          pid,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 
@@ -233,8 +405,20 @@ export async function killPort(
   if (listeners.length === 0) {
     return { killed: [], failed: [] };
   }
-  return killProcesses(
-    listeners.map((p) => p.pid),
-    force,
-  );
+
+  // Never attempt to kill the port number itself if it slipped through
+  const pids = listeners.map((p) => p.pid).filter((pid) => pid !== port);
+  if (pids.length === 0) {
+    return {
+      killed: [],
+      failed: [
+        {
+          pid: 0,
+          error: `Could not resolve a real process ID for port ${port}`,
+        },
+      ],
+    };
+  }
+
+  return killProcesses(pids, force);
 }
