@@ -96,19 +96,9 @@ Outputs land in `release/`. You cannot reliably cross-compile all three platform
 
 ### 4. macOS Gatekeeper / signing (optional)
 
-Unsigned Mac builds work, but users may need **Right-click → Open** the first time.
+CI publishes **unsigned** Mac builds by default (Gatekeeper may require **Right-click → Open** the first time).
 
-To notarize signed builds, add these repository secrets:
-
-| Secret | Purpose |
-| --- | --- |
-| `CSC_LINK` | Base64 of your Developer ID `.p12` certificate |
-| `CSC_KEY_PASSWORD` | Certificate password |
-| `APPLE_ID` | Apple ID for notarization |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password |
-| `APPLE_TEAM_ID` | Apple Team ID |
-
-Without those secrets, CI still publishes unsigned macOS artifacts.
+To notarize signed builds later, configure Apple Developer cert secrets and update the macOS packaging step to enable `CSC_IDENTITY_AUTO_DISCOVERY` with `CSC_LINK` / notarization credentials.
 
 ## How it works
 
