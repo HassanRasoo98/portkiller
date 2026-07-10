@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+.npm/
+
+# Build
+dist/
+dist-electron/
+release/
+out/
+
+# Logs / cache
+*.log
+.DS_Store
+.vite/
+coverage/
+
+# Env / editor
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+*.swp
