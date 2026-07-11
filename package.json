@@ -1,6 +1,6 @@
 {
   "name": "portkiller",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Cross-platform desktop app to detect common ports and free them by killing occupying processes",
   "main": "dist-electron/electron/main.js",
   "author": {
