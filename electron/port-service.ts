@@ -277,28 +277,28 @@ async function findListenersWindows(port: number): Promise<PortProcess[]> {
   }
 
   const unique = uniqueByPid(processes);
-  const enriched: PortProcess[] = [];
 
-  for (const proc of unique) {
-    const task = await run('tasklist', [
-      '/FI',
-      `PID eq ${proc.pid}`,
-      '/FO',
-      'CSV',
-      '/NH',
-    ]);
-    if (task.code === 0 && task.stdout.trim()) {
-      const csv = task.stdout.trim().split('\n')[0];
-      const nameMatch = csv.match(/^"([^"]+)"/);
-      enriched.push({
-        ...proc,
-        name: nameMatch?.[1] ?? proc.name,
-        command: csv,
-      });
-    } else {
-      enriched.push(proc);
-    }
-  }
+  const enriched = await Promise.all(
+    unique.map(async (proc) => {
+      const task = await run('tasklist', [
+        '/FI',
+        `PID eq ${proc.pid}`,
+        '/FO',
+        'CSV',
+        '/NH',
+      ]);
+      if (task.code === 0 && task.stdout.trim()) {
+        const csv = task.stdout.trim().split('\n')[0];
+        const nameMatch = csv.match(/^"([^"]+)"/);
+        return {
+          ...proc,
+          name: nameMatch?.[1] ?? proc.name,
+          command: csv,
+        };
+      }
+      return proc;
+    }),
+  );
 
   return enriched;
 }

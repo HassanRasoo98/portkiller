@@ -39,13 +39,15 @@
     "appId": "com.portkiller.app",
     "productName": "PortKiller",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
       "package.json"
     ],
+    "icon": "build/icon.png",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "publish": [
       {
@@ -109,7 +111,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}-${arch}.${ext}"
     },
     "linux": {
       "target": [

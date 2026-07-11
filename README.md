@@ -1,9 +1,15 @@
-# PortKiller
+<p align="center">
+  <img src="build/icon.png" alt="PortKiller icon" width="120" height="120">
+</p>
 
-Open-source, cross-platform desktop app that scans common local ports, shows which processes are holding them, and frees ports with one click.
+<h1 align="center">PortKiller</h1>
 
-![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-0b6e6a)
-![License](https://img.shields.io/badge/license-MIT-1f7a4d)
+<p align="center">Open-source, cross-platform desktop app that scans common local ports, shows which processes are holding them, and frees ports with one click.</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-0b6e6a" alt="Platform">
+  <img src="https://img.shields.io/badge/license-MIT-1f7a4d" alt="License">
+</p>
 
 ## Features
 
@@ -15,6 +21,8 @@ Open-source, cross-platform desktop app that scans common local ports, shows whi
 - **Cross-platform** — macOS, Windows, and Linux via Electron
 
 ## Screenshots / UI
+
+![PortKiller main window](docs/screenshots/main-window.png)
 
 The main window shows:
 
