@@ -4,7 +4,7 @@
 
 <h1 align="center">PortKiller</h1>
 
-<p align="center">Open-source, cross-platform desktop app that scans common local ports, shows which processes are holding them, and frees ports with one click.</p>
+<p align="center">Open-source, cross-platform desktop app and CLI that scan local TCP ports and free them with one click or <code>portkill 3000</code>.</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-0b6e6a" alt="Platform">
@@ -15,6 +15,7 @@
 
 - **Common port presets** — web servers, databases, caches, queues, containers, and more
 - **Live status** — see which ports are free vs occupied, with process name and PID
+- **Terminal command** — install once, then run `portkill 3000` without opening the UI
 - **One-click kill** — free a blocked port from the interactive UI
 - **Filters** — search, category, and free/in-use filters
 - **Custom ports** — add any TCP port (1–65535) and scan it
@@ -46,20 +47,75 @@ Browser-only UI preview (demo data, no real kills):
 npm run dev
 ```
 
+## CLI installation and usage
+
+Requires Node.js 18+ and npm. Install from npm:
+
+```bash
+npm install -g @hassan_rasool/portkill
+portkill 3000
+```
+
+You can also run `npx @hassan_rasool/portkill 3000`. To install directly from this repository:
+
+```bash
+npm install
+npm run build:cli
+npm install -g .
+```
+
+Then, from any directory:
+
+```bash
+portkill 3000
+```
+
+The command force terminates the processes listening on that TCP port and verifies it is free. No confirmation prompt is required. An already-free port is a successful no-op. Killing a listener terminates its whole process, including any other ports it serves.
+
+```bash
+portkill 5173 --graceful  # Request termination instead of forcing it
+portkill --help
+portkill --version
+```
+
+Exit codes: `0` = port is free, `1` = scanning/killing failed or port remains occupied, `2` = invalid arguments. UDP ports and remote hosts are not supported.
+
+The CLI runs under Node; it does not launch Electron or require the desktop app. Installing the desktop app alone does not add `portkill` to your terminal.
+
+### Install on another machine
+
+Build an npm package from this checkout:
+
+```bash
+npm run pack:cli
+```
+
+Copy the generated `portkill-1.0.2.tgz` to a macOS, Windows, or Linux machine with Node.js, then install it:
+
+```bash
+npm install -g /path/to/portkill-1.0.2.tgz
+portkill 3000
+```
+
+`npm run pack:cli` builds a dedicated `@hassan_rasool/portkill` package with no React or Electron dependencies. The root desktop package is private because the npm name `portkiller` belongs to another project. Packing does not publish; `npm run publish:cli` runs tests and typechecks, packages the CLI, then publishes it to the public npm registry using your authenticated account. Local directory installs may link to the checkout, so keep it in place and rebuild after CLI changes. Installing the tarball creates an independent copy. Uninstall the registry package with `npm uninstall -g @hassan_rasool/portkill`, or a local checkout install with `npm uninstall -g portkiller`.
+
+If `portkill` is not found, ensure your npm global executable directory is in `PATH` (the npm prefix on Windows, or `<prefix>/bin` on macOS/Linux; inspect it with `npm prefix -g`).
+
 ## Scripts
 
-| Command | Description |
-| --- | --- |
-| `npm run electron:dev` | Vite + Electron with live reload |
-| `npm run dev` | Vite UI only (demo API) |
-| `npm run build` | Typecheck/compile renderer + Electron main |
-| `npm run electron:build` | Package for the current OS |
-| `npm run electron:build:mac` | macOS `.dmg` + `.zip` (x64 + arm64) |
-| `npm run electron:build:win` | Windows NSIS installer + portable `.exe` |
-| `npm run electron:build:linux` | Linux AppImage + `.deb` |
-| `npm run release:tag` | Create a `v*` git tag (optionally bump version) |
-| `npm test` | Unit tests |
-| `npm run typecheck` | TypeScript checks |
+- `npm run electron:dev` — Vite + Electron with live reload
+- `npm run dev` — browser UI demo
+- `npm run build:cli` — compile the Node CLI and shared service
+- `npm run pack:cli` — build a dependency-free `portkill` npm tarball
+- `npm run publish:cli` — validate, package, and publish `@hassan_rasool/portkill` (requires npm login)
+- `npm run build` — compile renderer, Electron, and CLI
+- `npm run electron:build` — build desktop installers
+- `npm test` — build CLI and run tests, including disposable real listener checks
+- `npm run typecheck` — check UI, Electron, and CLI TypeScript
+- `npm run electron:build:mac` — macOS installers (x64 + arm64)
+- `npm run electron:build:win` — Windows NSIS installer and portable executable
+- `npm run electron:build:linux` — Linux AppImage and Debian package
+- `npm run release:tag` — create a version tag, optionally bumping the version
 
 ## GitHub Releases (all platforms)
 
@@ -110,12 +166,10 @@ To notarize signed builds later, configure Apple Developer cert secrets and upda
 
 ## How it works
 
-| Platform | Detect listeners | Kill process |
-| --- | --- | --- |
-| macOS / Linux | `lsof` (fallback: `ss`, `fuser`) | `kill -9` / `SIGTERM` |
-| Windows | `netstat` + `tasklist` | `taskkill /F` |
+- **macOS / Linux:** detect TCP listeners with `lsof`, falling back to `ss` on Linux; terminate with `kill -9` or `kill -TERM`.
+- **Windows:** detect local TCP listeners with `netstat` + `tasklist`; terminate with `taskkill /F`, or without `/F` for `--graceful`.
 
-Protected system processes may require elevated privileges. If a kill fails, the UI shows the error and suggests running as administrator / with sudo where appropriate.
+Linux needs `lsof` or `ss` installed. Scanner failures report errors rather than claiming the port is free. Process visibility depends on OS permissions; another user's listener may need elevated privileges. Kill failures can require running the terminal as administrator on Windows or using sudo on macOS/Linux. A server supervised by a process manager may restart immediately.
 
 ## Common ports included
 
@@ -124,18 +178,22 @@ Examples: `3000`, `5173`, `8080`, `5432`, `3306`, `27017`, `6379`, `9200`, `5672
 ## Project layout
 
 ```
-electron/          Main process, preload, port scan/kill
+bin/               npm portkill executable
+cli/               CLI arguments, termination, verification
+electron/          Main process, preload, shared Node port scan/kill
 shared/            Shared port definitions and types
 src/               React UI
+portkiller-obsidian-docs/  Developer notes
 ```
 
 ## Troubleshooting
 
-| Symptom | Fix |
-| --- | --- |
-| Kill fails with permission errors | Quit the owning app, or relaunch PortKiller with elevated privileges |
-| Port still shows in use after kill | Hit **Rescan** — some servers respawn (e.g. process managers) |
-| macOS “Could not kill: \<port\> (ESRCH)” on older builds | Update to the latest PortKiller — PID detection no longer confuses the port number with a process ID |
+- **Permission errors:** quit the owning app, or run the CLI/desktop app with elevated privileges.
+- **Still occupied after kill:** stop the process manager that is restarting the server, then retry or rescan.
+- **Missing scanner:** install `lsof` on macOS/Linux or `ss` on Linux.
+- **Command not found:** check npm's global executable directory is on `PATH` and rerun the installation steps.
+
+Developer details are in [`portkiller-obsidian-docs/Index.md`](portkiller-obsidian-docs/Index.md).
 
 ## Security notes
 

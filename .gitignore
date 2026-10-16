@@ -5,6 +5,8 @@ node_modules/
 # Build
 dist/
 dist-electron/
+dist-cli/
+*.tgz
 release/
 out/
 
@@ -19,5 +21,9 @@ coverage/
 .env.*
 !.env.example
 .idea/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
 *.swp
+
+# Staged public npm CLI package
+.npm-package/

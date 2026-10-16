@@ -16,12 +16,13 @@ export function uniqueByPid(processes: PortProcess[]): PortProcess[] {
 async function run(
   command: string,
   args: string[],
-): Promise<{ stdout: string; stderr: string; code: number }> {
+): Promise<{ stdout: string; stderr: string; code: number | string }> {
   try {
     const { stdout, stderr } = await execFileAsync(command, args, {
       encoding: 'utf8',
       maxBuffer: 2 * 1024 * 1024,
       windowsHide: true,
+      timeout: 10_000,
     });
     return { stdout: stdout ?? '', stderr: stderr ?? '', code: 0 };
   } catch (error) {
@@ -34,7 +35,7 @@ async function run(
     return {
       stdout: err.stdout ?? '',
       stderr: err.stderr ?? err.message ?? '',
-      code: typeof err.code === 'number' ? err.code : 1,
+      code: err.code ?? 'EXEC_FAILED',
     };
   }
 }
@@ -174,82 +175,35 @@ export function parseFuser(stdout: string, stderr: string, port: number): number
   ];
 }
 
-async function processNameForPid(pid: number): Promise<string> {
-  const ps = await run('ps', ['-p', String(pid), '-o', 'comm=']);
-  if (ps.code === 0 && ps.stdout.trim()) {
-    return ps.stdout.trim().split('/').pop() || `pid-${pid}`;
-  }
-  return `pid-${pid}`;
-}
-
-async function enrichPids(
-  pids: number[],
-  port: number,
-): Promise<PortProcess[]> {
-  const filtered = pids.filter((pid) => pid > 0 && pid !== port);
-  const processes = await Promise.all(
-    filtered.map(async (pid) => ({
-      pid,
-      name: await processNameForPid(pid),
-    })),
-  );
-  return uniqueByPid(processes);
-}
-
 async function findListenersUnix(port: number): Promise<PortProcess[]> {
-  // 1) Best: machine-readable lsof fields (reliable on macOS + Linux)
-  // Accept non-zero exit codes — lsof often exits 1 even with useful stdout.
-  const lsofFields = await run('lsof', [
-    '-nP',
-    '-Fpc',
-    `-iTCP:${port}`,
-    '-sTCP:LISTEN',
+  const lsof = await run('lsof', [
+    '-nP', '-Fpc', `-iTCP:${port}`, '-sTCP:LISTEN',
   ]);
-  if (lsofFields.stdout.trim()) {
-    const parsed = parseLsofFields(lsofFields.stdout).filter(
-      (proc) => proc.pid !== port,
-    );
-    if (parsed.length > 0) return parsed;
+  // lsof exits 1 with no diagnostics when there are no matching listeners.
+  if (lsof.code === 0 || (lsof.code === 1 && !lsof.stderr.trim())) {
+    return parseLsofFields(lsof.stdout);
   }
 
-  // 2) PID-only lsof (-t). Very common on macOS tooling.
-  const lsofPids = await run('lsof', [
-    '-nP',
-    '-tiTCP:' + String(port),
-    '-sTCP:LISTEN',
-  ]);
-  if (lsofPids.stdout.trim()) {
-    const pids = parseLsofPids(lsofPids.stdout, port);
-    if (pids.length > 0) return enrichPids(pids, port);
-  }
-
-  // 3) Broader tabular lsof without LISTEN filter (still TCP for this port)
-  const lsofLoose = await run('lsof', ['-nP', `-iTCP:${port}`]);
-  if (lsofLoose.stdout.trim()) {
-    const fromTable = parseLsofTable(lsofLoose.stdout).filter(
-      (proc) => proc.pid !== port,
-    );
-    if (fromTable.length > 0) return fromTable;
-  }
-
-  // 4) Linux ss
   const ss = await run('ss', ['-tlnp', `sport = :${port}`]);
-  if (ss.stdout.trim()) {
-    const parsed = parseSs(ss.stdout).filter((proc) => proc.pid !== port);
-    if (parsed.length > 0) return parsed;
+  if (ss.code === 0) {
+    const listeners = parseSs(ss.stdout);
+    if (ss.stdout.split(/\r?\n/).some((line) => /^\s*LISTEN\s/.test(line) && !/pid=\d+/.test(line))) {
+      throw new Error(`Cannot identify the listener on port ${port}. Try elevated privileges.`);
+    }
+    return listeners;
   }
 
-  // 5) fuser — never treat the port number as a PID
-  const fuser = await run('fuser', [`${port}/tcp`]);
-  const fuserPids = parseFuser(fuser.stdout, fuser.stderr, port);
-  if (fuserPids.length > 0) return enrichPids(fuserPids, port);
-
-  return [];
+  throw new Error(
+    'Could not scan TCP listeners. Install lsof (macOS/Linux) or ss (Linux), ' +
+    'and check permissions. ' + (lsof.stderr || ss.stderr).trim(),
+  );
 }
 
 async function findListenersWindows(port: number): Promise<PortProcess[]> {
   const netstat = await run('netstat', ['-ano', '-p', 'tcp']);
-  if (netstat.code !== 0) return [];
+  if (netstat.code !== 0) {
+    throw new Error(`Could not scan TCP listeners with netstat: ${netstat.stderr || netstat.stdout}`);
+  }
 
   const processes: PortProcess[] = [];
   const lines = netstat.stdout.split(/\r?\n/);
@@ -271,7 +225,7 @@ async function findListenersWindows(port: number): Promise<PortProcess[]> {
     if (!portMatch || Number(portMatch[1]) !== port) continue;
 
     const pid = Number(pidStr);
-    if (!Number.isFinite(pid) || pid <= 0 || pid === port) continue;
+    if (!Number.isFinite(pid) || pid <= 0) continue;
 
     processes.push({ pid, name: `pid-${pid}` });
   }
@@ -341,9 +295,13 @@ export async function killProcesses(
 ): Promise<{ killed: number[]; failed: Array<{ pid: number; error: string }> }> {
   const killed: number[] = [];
   const failed: Array<{ pid: number; error: string }> = [];
-  const uniquePids = [...new Set(pids)].filter((pid) => pid > 0);
+  const uniquePids = [...new Set(pids)];
 
   for (const pid of uniquePids) {
+    if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) {
+      failed.push({ pid, error: 'Refusing to terminate an unsafe process ID' });
+      continue;
+    }
     try {
       if (process.platform === 'win32') {
         const args = force
@@ -406,8 +364,7 @@ export async function killPort(
     return { killed: [], failed: [] };
   }
 
-  // Never attempt to kill the port number itself if it slipped through
-  const pids = listeners.map((p) => p.pid).filter((pid) => pid !== port);
+  const pids = listeners.map((p) => p.pid);
   if (pids.length === 0) {
     return {
       killed: [],

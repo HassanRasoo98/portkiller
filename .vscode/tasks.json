@@ -1,0 +1,57 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "PortKiller: Desktop development",
+      "type": "npm",
+      "script": "electron:dev",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "PortKiller: Browser demo",
+      "type": "npm",
+      "script": "dev",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "PortKiller: Build CLI",
+      "type": "npm",
+      "script": "build:cli",
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "PortKiller: Build all",
+      "type": "npm",
+      "script": "build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "PortKiller: Test",
+      "type": "npm",
+      "script": "test",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "PortKiller: Typecheck",
+      "type": "npm",
+      "script": "typecheck",
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "PortKiller: Package npm CLI",
+      "type": "npm",
+      "script": "pack:cli",
+      "problemMatcher": []
+    }
+  ]
+}
