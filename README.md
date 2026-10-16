@@ -49,7 +49,14 @@ npm run dev
 
 ## CLI installation and usage
 
-Requires Node.js 18+ and npm. From this repository, install once:
+Requires Node.js 18+ and npm. Install from npm:
+
+```bash
+npm install -g @hassan_rasool/portkill
+portkill 3000
+```
+
+You can also run `npx @hassan_rasool/portkill 3000`. To install directly from this repository:
 
 ```bash
 npm install
@@ -80,17 +87,17 @@ The CLI runs under Node; it does not launch Electron or require the desktop app.
 Build an npm package from this checkout:
 
 ```bash
-npm pack
+npm run pack:cli
 ```
 
-Copy the generated `portkiller-1.0.2.tgz` to a macOS, Windows, or Linux machine with Node.js, then install it:
+Copy the generated `portkill-1.0.2.tgz` to a macOS, Windows, or Linux machine with Node.js, then install it:
 
 ```bash
-npm install -g /path/to/portkiller-1.0.2.tgz
+npm install -g /path/to/portkill-1.0.2.tgz
 portkill 3000
 ```
 
-`npm pack` builds the CLI automatically. This does not publish anything to npm; registry installation by package name requires a separate release. Local directory installs may link to the checkout, so keep it in place and rebuild after CLI changes. Installing the tarball creates an independent copy. Uninstall with `npm uninstall -g portkiller`.
+`npm run pack:cli` builds a dedicated `@hassan_rasool/portkill` package with no React or Electron dependencies. The root desktop package is private because the npm name `portkiller` belongs to another project. Packing does not publish; `npm run publish:cli` runs tests and typechecks, packages the CLI, then publishes it to the public npm registry using your authenticated account. Local directory installs may link to the checkout, so keep it in place and rebuild after CLI changes. Installing the tarball creates an independent copy. Uninstall the registry package with `npm uninstall -g @hassan_rasool/portkill`, or a local checkout install with `npm uninstall -g portkiller`.
 
 If `portkill` is not found, ensure your npm global executable directory is in `PATH` (the npm prefix on Windows, or `<prefix>/bin` on macOS/Linux; inspect it with `npm prefix -g`).
 
@@ -99,6 +106,8 @@ If `portkill` is not found, ensure your npm global executable directory is in `P
 - `npm run electron:dev` — Vite + Electron with live reload
 - `npm run dev` — browser UI demo
 - `npm run build:cli` — compile the Node CLI and shared service
+- `npm run pack:cli` — build a dependency-free `portkill` npm tarball
+- `npm run publish:cli` — validate, package, and publish `@hassan_rasool/portkill` (requires npm login)
 - `npm run build` — compile renderer, Electron, and CLI
 - `npm run electron:build` — build desktop installers
 - `npm test` — build CLI and run tests, including disposable real listener checks

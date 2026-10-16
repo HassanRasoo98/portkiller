@@ -5,6 +5,7 @@
 - `shared/common-ports.ts`: port definitions and TypeScript interfaces.
 - `cli/main.ts`: validates a single port before any operations, scans, terminates listener PIDs, and polls up to ten times at 100 ms intervals to verify release. Errors and still-occupied ports return nonzero exit codes.
 - `bin/portkill.cjs`: npm executable wrapper; loads `dist-cli/cli/main.js` and sets the process exit code.
+- `scripts/package-cli.mjs`: creates `.npm-package/` from the compiled CLI and a generated `@hassan_rasool/portkill` manifest. `scripts/publish-cli.mjs` publishes the exact versioned tarball; npm credentials remain in the local npm login, never in source.
 - `tsconfig.cli.json`: compiles only CLI/service/shared code to `dist-cli/`, without Electron imports. Desktop output remains in `dist-electron/`, renderer assets in `dist/`.
 
 Both clients share listener detection and termination. Unix detection uses machine-readable `lsof -Fpc` restricted to TCP LISTEN sockets, with Linux `ss -tlnp` as a fallback. Windows detection uses `netstat -ano -p tcp`, matches local LISTENING ports (IPv4 or IPv6), and enriches names with `tasklist`. PIDs are deduplicated. Broader connected-socket queries and `fuser` are not used to choose kill targets.

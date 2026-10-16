@@ -37,7 +37,9 @@
     "build:cli": "tsc -p tsconfig.cli.json",
     "prepack": "npm run build:cli",
     "pretest": "npm run build:cli",
-    "pretest:watch": "npm run build:cli"
+    "pretest:watch": "npm run build:cli",
+    "pack:cli": "npm run build:cli && node scripts/package-cli.mjs",
+    "publish:cli": "npm test && npm run typecheck && npm run pack:cli && node scripts/publish-cli.mjs"
   },
   "build": {
     "appId": "com.portkiller.app",
@@ -173,5 +175,6 @@
   ],
   "engines": {
     "node": ">=18"
-  }
+  },
+  "private": true
 }

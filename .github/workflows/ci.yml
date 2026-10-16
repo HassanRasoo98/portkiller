@@ -27,9 +27,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npm pack
+      - run: npm run pack:cli
       - name: Install packaged CLI
         shell: bash
-        run: npm install --global ./portkiller-*.tgz
+        run: npm install --global ./portkill-*.tgz
       - run: portkill --help
       - run: portkill --version

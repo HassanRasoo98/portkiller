@@ -7,6 +7,6 @@
 - Run `npm ci`, `npm run electron:dev` for the desktop app, or `npm run dev` for the browser demo. There is no separate backend service.
 - `npm run build:cli` creates `dist-cli/`; `npm run build` builds renderer, Electron, and CLI. `npm run electron:build` packages desktop installers.
 - Validate with `npm test` and `npm run typecheck`. CLI tests include a real disposable listener; never use personal running services as kill targets. `npm test` builds the CLI first. Rebuild with `npm run build:cli` when changing code during test watch.
-- `npm pack` builds and packages the CLI; npm installs do not need Electron. For local installation, build the CLI then run `npm install -g .`. Do not publish without an explicit request.
+- `npm run pack:cli` creates a dependency-free public `@hassan_rasool/portkill` package via `scripts/package-cli.mjs`; the root `portkiller` package is private. `npm run publish:cli` validates and publishes the staged tarball with npm authentication. For local installation, build the CLI then run `npm install -g .`. Do not publish without an explicit request.
 - Desktop packaging uses `build/` icons, per-platform `electron:build:*` scripts, and `.github/workflows/release.yml` for version-tag releases. `scripts/release-tag.mjs` manages release tags.
 - Preserve existing UI components and styles. Maintain `.vscode/tasks.json` and affected notes in `portkiller-obsidian-docs/` when architecture or commands change.

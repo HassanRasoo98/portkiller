@@ -24,3 +24,6 @@ coverage/
 .vscode/*
 !.vscode/tasks.json
 *.swp
+
+# Staged public npm CLI package
+.npm-package/
