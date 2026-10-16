@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.electron.json",
+  "compilerOptions": {
+    "outDir": "dist-cli"
+  },
+  "include": ["cli/**/*.ts", "electron/port-service.ts", "shared/common-ports.ts"],
+  "exclude": ["**/*.test.ts"]
+}
