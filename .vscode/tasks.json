@@ -6,7 +6,11 @@
       "type": "npm",
       "script": "electron:dev",
       "isBackground": true,
-      "problemMatcher": []
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
     },
     {
       "label": "PortKiller: Browser demo",
@@ -25,10 +29,6 @@
       "label": "PortKiller: Build all",
       "type": "npm",
       "script": "build",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
       "problemMatcher": "$tsc"
     },
     {

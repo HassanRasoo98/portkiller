@@ -1,10 +1,8 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import type { PortProcess } from '../shared/common-ports';
+import type { HostPortProcess, PortProcess } from '../shared/common-ports';
+import { run } from './system-command';
+import { findDockerListeners, stopContainers, isDockerProcess, type DockerSnapshot } from './docker-service';
 
-const execFileAsync = promisify(execFile);
-
-export function uniqueByPid(processes: PortProcess[]): PortProcess[] {
+export function uniqueByPid(processes: HostPortProcess[]): HostPortProcess[] {
   const seen = new Set<number>();
   return processes.filter((proc) => {
     if (seen.has(proc.pid)) return false;
@@ -13,36 +11,9 @@ export function uniqueByPid(processes: PortProcess[]): PortProcess[] {
   });
 }
 
-async function run(
-  command: string,
-  args: string[],
-): Promise<{ stdout: string; stderr: string; code: number | string }> {
-  try {
-    const { stdout, stderr } = await execFileAsync(command, args, {
-      encoding: 'utf8',
-      maxBuffer: 2 * 1024 * 1024,
-      windowsHide: true,
-      timeout: 10_000,
-    });
-    return { stdout: stdout ?? '', stderr: stderr ?? '', code: 0 };
-  } catch (error) {
-    const err = error as {
-      stdout?: string;
-      stderr?: string;
-      code?: number | string;
-      message?: string;
-    };
-    return {
-      stdout: err.stdout ?? '',
-      stderr: err.stderr ?? err.message ?? '',
-      code: err.code ?? 'EXEC_FAILED',
-    };
-  }
-}
-
 /** Parse `lsof -F pc` machine-readable output into processes. */
-export function parseLsofFields(stdout: string): PortProcess[] {
-  const processes: PortProcess[] = [];
+export function parseLsofFields(stdout: string): HostPortProcess[] {
+  const processes: HostPortProcess[] = [];
   let pid: number | null = null;
   let name = 'unknown';
 
@@ -72,14 +43,14 @@ export function parseLsofFields(stdout: string): PortProcess[] {
 }
 
 /** Parse classic tabular `lsof` output. */
-export function parseLsofTable(stdout: string): PortProcess[] {
+export function parseLsofTable(stdout: string): HostPortProcess[] {
   const lines = stdout
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
 
   const dataLines = lines[0]?.startsWith('COMMAND') ? lines.slice(1) : lines;
-  const processes: PortProcess[] = [];
+  const processes: HostPortProcess[] = [];
 
   for (const line of dataLines) {
     const parts = line.split(/\s+/);
@@ -119,8 +90,8 @@ export function parseLsofPids(stdout: string, port: number): number[] {
 }
 
 /** Parse `ss -tlnp` output for a port. */
-export function parseSs(stdout: string): PortProcess[] {
-  const processes: PortProcess[] = [];
+export function parseSs(stdout: string): HostPortProcess[] {
+  const processes: HostPortProcess[] = [];
   const pidRegex = /pid=(\d+)/g;
   const nameRegex = /users:\(\("([^"]+)"/g;
   const pids: number[] = [];
@@ -175,7 +146,7 @@ export function parseFuser(stdout: string, stderr: string, port: number): number
   ];
 }
 
-async function findListenersUnix(port: number): Promise<PortProcess[]> {
+async function findListenersUnix(port: number): Promise<HostPortProcess[]> {
   const lsof = await run('lsof', [
     '-nP', '-Fpc', `-iTCP:${port}`, '-sTCP:LISTEN',
   ]);
@@ -199,13 +170,13 @@ async function findListenersUnix(port: number): Promise<PortProcess[]> {
   );
 }
 
-async function findListenersWindows(port: number): Promise<PortProcess[]> {
+async function findListenersWindows(port: number): Promise<HostPortProcess[]> {
   const netstat = await run('netstat', ['-ano', '-p', 'tcp']);
   if (netstat.code !== 0) {
     throw new Error(`Could not scan TCP listeners with netstat: ${netstat.stderr || netstat.stdout}`);
   }
 
-  const processes: PortProcess[] = [];
+  const processes: HostPortProcess[] = [];
   const lines = netstat.stdout.split(/\r?\n/);
 
   for (const line of lines) {
@@ -257,16 +228,18 @@ async function findListenersWindows(port: number): Promise<PortProcess[]> {
   return enriched;
 }
 
-export async function findListenersOnPort(port: number): Promise<PortProcess[]> {
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return [];
+export async function findListenersOnPort(port: number, snapshot?: DockerSnapshot): Promise<PortProcess[]> {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return [];
+  const containers = (snapshot ?? await findDockerListeners()).get(port) ?? [];
+  let native: HostPortProcess[];
+  try {
+    native = await (process.platform === 'win32' ? findListenersWindows(port) : findListenersUnix(port));
+  } catch (error) {
+    if (containers.length > 0) return containers;
+    throw error;
   }
-
-  if (process.platform === 'win32') {
-    return findListenersWindows(port);
-  }
-
-  return findListenersUnix(port);
+  // Docker forwarding processes are shared infrastructure, not kill targets.
+  return [...containers, ...native.filter((proc) => !containers.length || !isDockerProcess(proc.name))];
 }
 
 function isNoSuchProcessError(error: unknown): boolean {
@@ -360,22 +333,13 @@ export async function killPort(
   force = true,
 ): Promise<{ killed: number[]; failed: Array<{ pid: number; error: string }> }> {
   const listeners = await findListenersOnPort(port);
-  if (listeners.length === 0) {
-    return { killed: [], failed: [] };
+  const containers = listeners.filter((listener) => listener.containerId !== undefined);
+  // Never terminate host processes while freeing a Docker-published port.
+  // Other listeners on this port will be reported by the caller's verification.
+  if (containers.length > 0) return stopContainers(containers, force);
+  const native = listeners.filter((listener): listener is HostPortProcess => listener.pid !== undefined);
+  if (native.some((listener) => isDockerProcess(listener.name))) {
+    return { killed: [], failed: [{ pid: 0, error: 'Cannot identify the Docker container. Check Docker access; refusing to terminate shared Docker infrastructure.' }] };
   }
-
-  const pids = listeners.map((p) => p.pid);
-  if (pids.length === 0) {
-    return {
-      killed: [],
-      failed: [
-        {
-          pid: 0,
-          error: `Could not resolve a real process ID for port ${port}`,
-        },
-      ],
-    };
-  }
-
-  return killProcesses(pids, force);
+  return killProcesses(native.map((listener) => listener.pid), force);
 }

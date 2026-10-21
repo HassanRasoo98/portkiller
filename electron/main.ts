@@ -12,6 +12,7 @@ import {
   type ScanResult,
 } from '../shared/common-ports';
 import { findListenersOnPort, killPort } from './port-service';
+import { findDockerListeners } from './docker-service';
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
@@ -60,6 +61,7 @@ async function scanPorts(ports?: number[]): Promise<ScanResult> {
       : COMMON_PORTS;
 
   const results: PortInfo[] = [];
+  const docker = await findDockerListeners();
 
   // Scan in small batches to keep UI responsive and avoid spawning too many processes
   const batchSize = 6;
@@ -67,7 +69,7 @@ async function scanPorts(ports?: number[]): Promise<ScanResult> {
     const batch = targets.slice(i, i + batchSize);
     const batchResults = await Promise.all(
       batch.map(async (target) => {
-        const processes = await findListenersOnPort(target.port);
+        const processes = await findListenersOnPort(target.port, docker);
         return {
           port: target.port,
           label: target.label,
@@ -141,7 +143,7 @@ function registerIpc(): void {
           : `${details}. Port ${port} is still in use.`;
       } else if (after.length > 0) {
         const still = after
-          .map((p) => `${p.name} (PID ${p.pid})`)
+          .map((p) => p.containerId ? `${p.name} (${p.containerId.slice(0, 12)})` : `${p.name} (PID ${p.pid})`)
           .join(', ');
         message = `Port ${port} still occupied by ${still}`;
       } else {

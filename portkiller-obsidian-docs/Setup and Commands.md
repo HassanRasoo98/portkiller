@@ -23,10 +23,13 @@ The global npm executable directory must be on `PATH`. Local directory installat
 
 - `portkill 3000` force terminates TCP listeners, without confirmation.
 - `portkill 3000 --graceful` requests termination (SIGTERM on Unix; taskkill without `/F` on Windows).
+- Docker-published TCP ports use the local Docker CLI; freeing one stops the entire matching container. Default stop timeout is 0 seconds; `--graceful` uses 5 seconds. Unix socket and named pipe endpoints are supported; SSH/TCP contexts are excluded.
 - `portkill --help` / `portkill --version` provide command information.
 - Exit codes: `0` port is free, `1` scanning/termination/verification failure, `2` invalid arguments.
 
-`npm test` builds the CLI and runs unit, command-mock, and real child-server integration tests. `npm run typecheck` checks UI, Electron, and CLI. `npm run build` compiles all three; `npm run electron:build` also packages desktop installers. `npm run pack:cli` stages and packs only the compiled CLI, executable, CLI README, license, and generated public manifest. The tarball has no npm runtime dependencies. The root desktop package is private; npm name `portkiller` is owned by an unrelated project. VS Code tasks mirror these commands.
+`npm test` builds the CLI and runs unit, command-mock, and real child-server integration tests. `npm run typecheck` checks UI, Electron, and CLI. `npm run build` compiles all three; `npm run electron:build` also packages desktop installers. `npm run pack:cli` stages and packs only the compiled CLI, executable, CLI README, license, and generated public manifest. The tarball has no npm runtime dependencies. The root desktop package is private; npm name `portkiller` is owned by an unrelated project. VS Code tasks mirror these commands; the default build shortcut starts desktop development.
+
+Optional real Docker regression: `PORTKILL_DOCKER_TEST=1 npm test` requires a running local daemon and an existing `alpine:latest` image. It creates and cleans up disposable containers, exercises default and graceful stopping, and checks an unrelated test container stays running.
 
 GitHub Actions runs checks, builds, packages, and installation smoke checks on macOS, Windows, and Linux. Publishing to npm is a separate release action, not part of CI. Run `npm login --registry=https://registry.npmjs.org`, then `npm run publish:cli` to validate and publish `@hassan_rasool/portkill` with the root package version. Complete any interactive npm authentication challenge in your browser.
 

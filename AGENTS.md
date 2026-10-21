@@ -3,9 +3,11 @@
 - Stack: React 19 + TypeScript + Vite renderer, Electron desktop shell, Node CLI. Use npm and keep `package-lock.json` synchronized.
 - `src/` contains the UI; browser-only development uses a demo API. `electron/main.ts` and `preload.ts` provide real operations through IPC.
 - `electron/port-service.ts` is Node-only shared scanning/termination code used by both Electron and the CLI. Do not add Electron imports to it. Scan TCP listeners only; never infer PIDs from port numbers or diagnostic text.
+- `electron/docker-service.ts` discovers local Docker TCP bindings and stops containers by ID; `electron/system-command.ts` runs shell-free commands. Docker owners have container IDs, never invented host PIDs. Do not kill shared Docker forwarding processes. Desktop scans reuse one Docker snapshot per scan.
 - `shared/common-ports.ts` defines port presets and types. `cli/main.ts` handles CLI arguments and verification; `bin/portkill.cjs` is the executable npm entry point.
 - Run `npm ci`, `npm run electron:dev` for the desktop app, or `npm run dev` for the browser demo. There is no separate backend service.
 - `npm run build:cli` creates `dist-cli/`; `npm run build` builds renderer, Electron, and CLI. `npm run electron:build` packages desktop installers.
+- Optional Docker integration: `PORTKILL_DOCKER_TEST=1 npm test` requires a local Docker daemon and an existing `alpine:latest` image. It creates and cleans up its own disposable containers only. Remote Docker endpoints are excluded.
 - Validate with `npm test` and `npm run typecheck`. CLI tests include a real disposable listener; never use personal running services as kill targets. `npm test` builds the CLI first. Rebuild with `npm run build:cli` when changing code during test watch.
 - `npm run pack:cli` creates a dependency-free public `@hassan_rasool/portkill` package via `scripts/package-cli.mjs`; the root `portkiller` package is private. `npm run publish:cli` validates and publishes the staged tarball with npm authentication. For local installation, build the CLI then run `npm install -g .`. Do not publish without an explicit request.
 - Desktop packaging uses `build/` icons, per-platform `electron:build:*` scripts, and `.github/workflows/release.yml` for version-tag releases. `scripts/release-tag.mjs` manages release tags.
