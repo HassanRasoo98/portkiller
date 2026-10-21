@@ -1,11 +1,22 @@
 export type PortStatus = 'free' | 'occupied' | 'unknown';
 
-export interface PortProcess {
+export interface HostPortProcess {
+  containerId?: never;
   pid: number;
   name: string;
   command?: string;
   user?: string;
 }
+
+export interface DockerPortProcess {
+  pid?: never;
+  name: string;
+  containerId: string;
+  containerName: string;
+  dockerHost: string;
+}
+
+export type PortProcess = HostPortProcess | DockerPortProcess;
 
 export interface PortInfo {
   port: number;

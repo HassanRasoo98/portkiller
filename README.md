@@ -78,6 +78,9 @@ portkill --help
 portkill --version
 ```
 
+
+Docker-published TCP ports are detected through the installed Docker CLI when a local daemon is available. Container name and ID appear in the desktop UI. Freeing a Docker port stops the entire matching container (including its other ports), without removing it or terminating Docker itself. The default uses `docker stop --time 0`; `--graceful` allows 5 seconds before forcing a stop. Remote Docker contexts (SSH/TCP) are excluded. If Docker is missing or unavailable, native process scanning remains available.
+
 Exit codes: `0` = port is free, `1` = scanning/killing failed or port remains occupied, `2` = invalid arguments. UDP ports and remote hosts are not supported.
 
 The CLI runs under Node; it does not launch Electron or require the desktop app. Installing the desktop app alone does not add `portkill` to your terminal.

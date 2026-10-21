@@ -1,8 +1,8 @@
-import { findListenersOnPort, killProcesses } from '../electron/port-service';
+import { findListenersOnPort, killPort } from '../electron/port-service';
 
 const HELP = `Usage: portkill <port> [--graceful]
 
-Free a TCP port by terminating its listening processes.
+Free a TCP port by terminating its listening processes or Docker containers.
 
 Examples:
   portkill 3000
@@ -45,8 +45,8 @@ export async function runCli(args: string[], version: string): Promise<number> {
       return 0;
     }
 
-    const { killed, failed } = await killProcesses(
-      listeners.map((listener) => listener.pid),
+    const { killed, failed } = await killPort(
+      port,
       !args.includes('--graceful'),
     );
     // Allow sockets to close, but don't hang on servers that ignore termination
@@ -61,7 +61,7 @@ export async function runCli(args: string[], version: string): Promise<number> {
     }
 
     for (const failure of failed) {
-      console.error(`portkill: PID ${failure.pid}: ${failure.error}`);
+      console.error(`portkill: ${failure.pid > 0 ? `PID ${failure.pid}: ` : ''}${failure.error}`);
     }
     console.error(`portkill: Port ${port} is still in use. Check permissions or whether a process manager restarted the server.`);
     return 1;

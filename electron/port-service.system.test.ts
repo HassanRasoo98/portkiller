@@ -6,6 +6,10 @@ vi.mock('node:child_process', () => ({
     [Symbol.for('nodejs.util.promisify.custom')]: command,
   }),
 }));
+vi.mock('./docker-service', async (original) => ({
+  ...await original<typeof import('./docker-service')>(),
+  findDockerListeners: vi.fn(async () => new Map()),
+}));
 import { findListenersOnPort, killProcesses } from './port-service';
 
 const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;

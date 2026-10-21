@@ -13,7 +13,9 @@ export function PortRow({ port, killing, index, onKill }: PortRowProps) {
     port.processes.length === 0
       ? '—'
       : port.processes
-          .map((proc) => `${proc.name} · PID ${proc.pid}`)
+          .map((proc) => proc.containerId
+            ? `${proc.name} · ${proc.containerId.slice(0, 12)}`
+            : `${proc.name} · PID ${proc.pid}`)
           .join(', ');
 
   return (
@@ -48,8 +50,13 @@ export function PortRow({ port, killing, index, onKill }: PortRowProps) {
             className="btn btn-danger"
             disabled={killing}
             onClick={() => onKill(port.port)}
+            title={port.processes.some((proc) => proc.containerId)
+              ? 'Stops the entire container, including its other published ports'
+              : undefined}
           >
-            {killing ? 'Killing…' : 'Kill & free'}
+            {port.processes.some((proc) => proc.containerId)
+              ? (killing ? 'Stopping…' : 'Stop container')
+              : (killing ? 'Killing…' : 'Kill & free')}
           </button>
         ) : (
           <span className="port-row__ready">Ready</span>

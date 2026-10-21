@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { findListenersOnPort, killProcesses } from '../electron/port-service';
+import { findListenersOnPort, killPort } from '../electron/port-service';
 import { runCli } from './main';
 
 vi.mock('../electron/port-service', () => ({
   findListenersOnPort: vi.fn(),
-  killProcesses: vi.fn(),
+  killPort: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -24,7 +24,7 @@ describe('portkill CLI', () => {
     'rejects invalid arguments %j without scanning or killing', async (...args) => {
       expect(await runCli(args as string[], '1.0.0')).toBe(2);
       expect(findListenersOnPort).not.toHaveBeenCalled();
-      expect(killProcesses).not.toHaveBeenCalled();
+      expect(killPort).not.toHaveBeenCalled();
     },
   );
 
@@ -38,7 +38,7 @@ describe('portkill CLI', () => {
   it('succeeds without killing when already free', async () => {
     vi.mocked(findListenersOnPort).mockResolvedValue([]);
     expect(await runCli(['3000'], '1.0.0')).toBe(0);
-    expect(killProcesses).not.toHaveBeenCalled();
+    expect(killPort).not.toHaveBeenCalled();
   });
 
   it.each([false, true])('kills listeners and verifies release (graceful=%s)', async (graceful) => {
@@ -46,17 +46,17 @@ describe('portkill CLI', () => {
       .mockResolvedValueOnce([{ pid: 4242, name: 'node' }])
       .mockResolvedValueOnce([{ pid: 4242, name: 'node' }])
       .mockResolvedValue([]);
-    vi.mocked(killProcesses).mockResolvedValue({ killed: [4242], failed: [] });
+    vi.mocked(killPort).mockResolvedValue({ killed: [4242], failed: [] });
     const result = runCli(graceful ? ['3000', '--graceful'] : ['3000'], '1.0.0');
     await vi.runAllTimersAsync();
     expect(await result).toBe(0);
-    expect(killProcesses).toHaveBeenCalledWith([4242], !graceful);
+    expect(killPort).toHaveBeenCalledWith(3000, !graceful);
     expect(findListenersOnPort).toHaveBeenCalledTimes(3);
   });
 
   it('returns failure if a killed server respawns', async () => {
     vi.mocked(findListenersOnPort).mockResolvedValue([{ pid: 4242, name: 'node' }]);
-    vi.mocked(killProcesses).mockResolvedValue({ killed: [4242], failed: [] });
+    vi.mocked(killPort).mockResolvedValue({ killed: [4242], failed: [] });
     const result = runCli(['3000'], '1.0.0');
     await vi.runAllTimersAsync();
     expect(await result).toBe(1);
@@ -65,7 +65,7 @@ describe('portkill CLI', () => {
 
   it('reports permission failures', async () => {
     vi.mocked(findListenersOnPort).mockResolvedValue([{ pid: 4242, name: 'node' }]);
-    vi.mocked(killProcesses).mockResolvedValue({ killed: [], failed: [{ pid: 4242, error: 'Permission denied' }] });
+    vi.mocked(killPort).mockResolvedValue({ killed: [], failed: [{ pid: 4242, error: 'Permission denied' }] });
     const result = runCli(['3000'], '1.0.0');
     await vi.runAllTimersAsync();
     expect(await result).toBe(1);
@@ -75,6 +75,6 @@ describe('portkill CLI', () => {
   it('reports scan errors instead of claiming the port is free', async () => {
     vi.mocked(findListenersOnPort).mockRejectedValue(new Error('Install lsof or ss'));
     expect(await runCli(['3000'], '1.0.0')).toBe(1);
-    expect(killProcesses).not.toHaveBeenCalled();
+    expect(killPort).not.toHaveBeenCalled();
   });
 });

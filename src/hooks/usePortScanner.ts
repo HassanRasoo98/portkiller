@@ -101,7 +101,7 @@ export function usePortScanner() {
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       const hay = `${port.port} ${port.label} ${port.category} ${port.processes
-        .map((p) => `${p.name} ${p.pid}`)
+        .map((p) => `${p.name} ${p.containerId ?? p.pid}`)
         .join(' ')}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }

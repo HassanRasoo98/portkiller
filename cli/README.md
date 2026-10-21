@@ -23,6 +23,9 @@ portkill --version
 
 `--graceful` requests termination instead of forcing it: SIGTERM on macOS/Linux, or taskkill without `/F` on Windows.
 
+
+Docker-published TCP ports are detected through the installed Docker CLI when a local daemon is available. Container name and ID appear in the desktop UI. Freeing a Docker port stops the entire matching container (including its other ports), without removing it or terminating Docker itself. The default uses `docker stop --time 0`; `--graceful` allows 5 seconds before forcing a stop. Remote Docker contexts (SSH/TCP) are excluded. If Docker is missing or unavailable, native process scanning remains available.
+
 Exit codes:
 
 - `0`: the port is free.
@@ -31,7 +34,7 @@ Exit codes:
 
 The package has no runtime npm dependencies and does not install or launch Electron. macOS/Linux require `lsof`, or `ss` on Linux; Windows uses built-in `netstat`, `tasklist`, and `taskkill`. Missing or failed scanning tools produce an error. Visibility and termination of another user's processes can require elevated privileges. If a process manager immediately restarts the listener, stop that manager before retrying.
 
-Only TCP listeners on the local machine are supported. UDP, remote hosts, and other container/network namespaces are outside the command's scope.
+Only TCP listeners on the local machine are supported. UDP, remote hosts, and unpublished ports inside other container/network namespaces are outside the command's scope.
 
 Portkill is the CLI companion to [PortKiller's desktop UI](https://github.com/HassanRasoo98/portkiller). The UI remains available separately through the repository's desktop releases.
 
